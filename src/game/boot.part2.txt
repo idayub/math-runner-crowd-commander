@@ -1,1 +1,470 @@
-PARTE2_PLACEHOLDER
+  // ---------- level build / teardown ----------
+  function clearLevel(): void {
+    if (!levelGroup) return;
+    scene.remove(levelGroup);
+    levelGroup.traverse((o) => {
+      const anyO = o as unknown as { __label?: Label };
+      if (anyO.__label) anyO.__label.dispose();
+    });
+    disposeObject(levelGroup);
+    levelGroup = null;
+    gateState.length = 0;
+    obstacles.length = 0;
+    coinState.length = 0;
+    coinMesh = null;
+  }
+
+  function buildLevel(d: LevelDef): void {
+    clearLevel();
+    finishZ = -d.length;
+    levelGroup = new THREE.Group();
+
+    // track strip
+    const trackLen = d.length + 26;
+    const track = new THREE.Mesh(
+      new THREE.BoxGeometry(TRACK_HALF * 2 + 1.6, 0.6, trackLen),
+      new THREE.MeshStandardMaterial({ color: COLORS.track, roughness: 0.85 }),
+    );
+    track.position.set(0, -0.3, 8 - trackLen / 2);
+    levelGroup.add(track);
+
+    // colored edges
+    const edgeGeo = new THREE.BoxGeometry(0.28, 0.66, trackLen);
+    const edgeMat = new THREE.MeshStandardMaterial({ color: COLORS.trackEdge, roughness: 0.6 });
+    for (const ex of [-(TRACK_HALF + 0.68), TRACK_HALF + 0.68]) {
+      const e = new THREE.Mesh(edgeGeo, edgeMat);
+      e.position.set(ex, -0.26, 8 - trackLen / 2);
+      levelGroup.add(e);
+    }
+
+    // center dashed lane line
+    const dashGeo = new THREE.BoxGeometry(0.12, 0.02, 1.6);
+    const dashMat = new THREE.MeshBasicMaterial({ color: 0xc3cede });
+    const dashCount = Math.floor(trackLen / 4);
+    const dashes = new THREE.InstancedMesh(dashGeo, dashMat, dashCount);
+    const dm = new THREE.Matrix4();
+    for (let i = 0; i < dashCount; i++) {
+      dm.makeTranslation(0, 0.012, 6 - i * 4);
+      dashes.setMatrixAt(i, dm);
+    }
+    dashes.instanceMatrix.needsUpdate = true;
+    levelGroup.add(dashes);
+
+    // support pillars under the suspended track
+    const pillarGeo = new THREE.CylinderGeometry(0.5, 0.7, 9, 8);
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x9fb4cc, roughness: 0.9 });
+    const pillarCount = Math.floor(d.length / 26);
+    const pillars = new THREE.InstancedMesh(pillarGeo, pillarMat, pillarCount);
+    for (let i = 0; i < pillarCount; i++) {
+      dm.makeTranslation(0, -4.8, -12 - i * 26);
+      pillars.setMatrixAt(i, dm);
+    }
+    pillars.instanceMatrix.needsUpdate = true;
+    levelGroup.add(pillars);
+
+    // start pad
+    const startPad = new THREE.Mesh(
+      new THREE.BoxGeometry(TRACK_HALF * 2 + 1.6, 0.05, 3),
+      new THREE.MeshBasicMaterial({ color: 0x27ae60 }),
+    );
+    startPad.position.set(0, 0.03, 6.5);
+    levelGroup.add(startPad);
+
+    // finish line: checkered canvas stripe
+    {
+      const c = document.createElement("canvas");
+      c.width = 256;
+      c.height = 64;
+      const ctx = c.getContext("2d")!;
+      for (let x = 0; x < 8; x++) {
+        for (let y = 0; y < 2; y++) {
+          ctx.fillStyle = (x + y) % 2 ? "#111827" : "#f8fafc";
+          ctx.fillRect(x * 32, y * 32, 32, 32);
+        }
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const stripe = new THREE.Mesh(
+        new THREE.BoxGeometry(TRACK_HALF * 2 + 1.6, 0.05, 2.2),
+        new THREE.MeshBasicMaterial({ map: tex }),
+      );
+      stripe.position.set(0, 0.03, finishZ + 1);
+      levelGroup.add(stripe);
+      // finish arch
+      const poleGeo = new THREE.CylinderGeometry(0.12, 0.12, 4.4, 8);
+      const poleMat = new THREE.MeshStandardMaterial({ color: 0xf2c94c, roughness: 0.4 });
+      for (const px of [-(TRACK_HALF + 0.5), TRACK_HALF + 0.5]) {
+        const pole = new THREE.Mesh(poleGeo, poleMat);
+        pole.position.set(px, 2.2, finishZ + 1);
+        levelGroup.add(pole);
+      }
+      const bannerC = document.createElement("canvas");
+      bannerC.width = 512;
+      bannerC.height = 96;
+      const bctx = bannerC.getContext("2d")!;
+      bctx.fillStyle = "#f2c94c";
+      bctx.fillRect(0, 0, 512, 96);
+      bctx.fillStyle = "#1f2937";
+      bctx.font = "800 52px ui-sans-serif, system-ui, sans-serif";
+      bctx.textAlign = "center";
+      bctx.textBaseline = "middle";
+      bctx.fillText("CHEGADA", 256, 52);
+      const btex = new THREE.CanvasTexture(bannerC);
+      btex.colorSpace = THREE.SRGBColorSpace;
+      const banner = new THREE.Mesh(
+        new THREE.PlaneGeometry(9, 1.4),
+        new THREE.MeshBasicMaterial({ map: btex, side: THREE.DoubleSide }),
+      );
+      banner.position.set(0, 4.2, finishZ + 1);
+      levelGroup.add(banner);
+    }
+
+    // gates
+    for (const g of d.gates) {
+      const gl = makeGatePanel(opLabel(g.left.op, g.left.val), g.left.op === "add" || g.left.op === "mul");
+      gl.group.position.set(-2.42, 0, g.z);
+      const gr = makeGatePanel(opLabel(g.right.op, g.right.val), g.right.op === "add" || g.right.op === "mul");
+      gr.group.position.set(2.42, 0, g.z);
+      levelGroup.add(gl.group, gr.group);
+      gateState.push({ z: g.z, applied: false, flash: 0, left: g.left, right: g.right, panels: [gl.panel, gr.panel] });
+    }
+
+    // obstacles
+    for (const od of d.obstacles) {
+      const ob = buildObstacle(od);
+      (ob.label.sprite as unknown as { __label?: Label }).__label = ob.label;
+      levelGroup.add(ob.group);
+      obstacles.push(ob);
+    }
+
+    // coins (instanced, spin as one)
+    const coinGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.09, 16);
+    coinGeo.rotateX(Math.PI / 2);
+    const coinMat = new THREE.MeshStandardMaterial({ color: COLORS.coin, metalness: 0.15, roughness: 0.35, emissive: 0x7a5c00, emissiveIntensity: 0.35 });
+    coinMesh = new THREE.InstancedMesh(coinGeo, coinMat, d.coins.length);
+    coinMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    coinMesh.frustumCulled = false;
+    levelGroup.add(coinMesh);
+    for (const c of d.coins) coinState.push({ x: c.x, z: c.z, taken: false });
+
+    scene.add(levelGroup);
+  }
+
+  // ---------- run control ----------
+  const shooters = new Float32Array(10); // per-shooter cooldown timers
+
+  function resetRun(): void {
+    count = startCount(save.upgrades);
+    centerX = 0;
+    centerZ = 0;
+    runCoins = 0;
+    lastGain = 0;
+    shake = 0;
+    visible = Math.min(count, MAX_UNITS);
+    lastCount = count;
+    for (let i = 0; i < MAX_UNITS; i++) {
+      unitX[i] = offsets[i].x;
+      unitZ[i] = offsets[i].z;
+      unitPop[i] = 0;
+    }
+    for (let i = 0; i < shooters.length; i++) shooters[i] = (i / shooters.length) * (1 / fireRate(save.upgrades));
+    for (const b of bullets) b.alive = false;
+    for (const p of parts) p.alive = false;
+    countLabel.set(String(count));
+  }
+
+  function startRun(): void {
+    def = genLevel(save.level);
+    buildLevel(def);
+    resetRun();
+    sm.transition("playing");
+    audio.startMusic();
+    pushUi(true);
+  }
+
+  function completeLevel(): void {
+    const bonus = 10 + save.level * 2;
+    lastGain = runCoins + bonus;
+    save.coins += lastGain;
+    runCoins = 0;
+    save.best = Math.max(save.best, save.level + 1);
+    save.level += 1;
+    storage.set(SAVE_KEY, save);
+    audio.sfx("win");
+    burst(centerX, 1.5, centerZ - 2, 40, 0xf2c94c, 5, 7);
+    burst(centerX, 1.5, centerZ - 2, 30, 0x2d9cdb, 5, 7);
+    sm.transition("levelup");
+    audio.stopMusic();
+    pushUi(true);
+  }
+
+  function gameOver(): void {
+    count = 0;
+    save.coins += runCoins;
+    runCoins = 0;
+    save.best = Math.max(save.best, save.level);
+    storage.set(SAVE_KEY, save);
+    audio.sfx("lose");
+    audio.stopMusic();
+    shake = 1.2;
+    burst(centerX, 1, centerZ, 50, COLORS.crowd, 6, 7);
+    sm.transition("gameover");
+    pushUi(true);
+  }
+
+  function applyGate(g: (typeof gateState)[number]): void {
+    g.applied = true;
+    g.flash = 1;
+    const side = centerX <= 0 ? g.left : g.right;
+    const before = count;
+    count = applyOp(count, side.op, side.val);
+    const good = count >= before;
+    audio.sfx(good ? "gate" : "gatebad");
+    burst(centerX <= 0 ? -2.42 : 2.42, 1.6, g.z, 22, good ? 0x22c55e : 0xef4444, 3, 5);
+    if (count <= 0) {
+      countLabel.set("0");
+      gameOver();
+      return;
+    }
+    // pop-in animation for newly added units (spawned right at their formation slot)
+    const vis = Math.min(count, MAX_UNITS);
+    for (let i = Math.min(before, MAX_UNITS); i < vis; i++) {
+      unitX[i] = centerX + offsets[i].x;
+      unitZ[i] = centerZ + offsets[i].z;
+      if (unitPop[i] <= 0) unitPop[i] = 0.001;
+    }
+    countLabel.set(String(count));
+  }
+
+  function destroyObstacle(ob: Obstacle, reward: number): void {
+    ob.dead = true;
+    ob.group.visible = false;
+    runCoins += reward;
+    audio.sfx("explosion");
+    burst(ob.def.x, 1, ob.def.z, ob.def.kind === "boss" ? 46 : 24, COLORS.enemy, 4, 6);
+    burst(ob.def.x, 1, ob.def.z, 10, COLORS.coin, 3, 5);
+    shake = Math.max(shake, ob.def.kind === "boss" ? 0.9 : 0.4);
+  }
+
+  // ---------- pointer drag steering (mouse + touch, one finger anywhere) ----------
+  let dragId: number | null = null;
+  let dragX = 0;
+  const onPointerDown = (e: PointerEvent) => {
+    if (dragId !== null) return;
+    dragId = e.pointerId;
+    dragX = e.clientX;
+  };
+  const onPointerMove = (e: PointerEvent) => {
+    if (e.pointerId !== dragId) return;
+    const dx = e.clientX - dragX;
+    dragX = e.clientX;
+    if (sm.state === "playing") centerX = clampF(centerX + dx * 0.024, -TRACK_HALF, TRACK_HALF);
+  };
+  const onPointerUp = (e: PointerEvent) => {
+    if (e.pointerId === dragId) dragId = null;
+  };
+  canvas.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+
+  function clampF(v: number, lo: number, hi: number): number {
+    return v < lo ? lo : v > hi ? hi : v;
+  }
+
+  // ---------- UI push ----------
+  let lastPush = 0;
+  let lastPhase: Phase = "title";
+  function pushUi(force = false): void {
+    const now = performance.now();
+    if (!force && now - lastPush < 90 && sm.state === lastPhase) return;
+    lastPush = now;
+    lastPhase = sm.state;
+    onUi({
+      phase: sm.state,
+      count,
+      coins: save.coins + runCoins,
+      level: save.level,
+      best: save.best,
+      progress: clampF(-centerZ / def.length, 0, 1),
+      muted: audio.muted,
+      upgrades: { ...save.upgrades },
+      costs: {
+        army: save.upgrades.army >= 10 ? Infinity : upgradeCost("army", save.upgrades.army),
+        rate: save.upgrades.rate >= 10 ? Infinity : upgradeCost("rate", save.upgrades.rate),
+        dmg: save.upgrades.dmg >= 10 ? Infinity : upgradeCost("dmg", save.upgrades.dmg),
+      },
+      gain: lastGain,
+    });
+  }
+
+  // ---------- shooting ----------
+  function tryShoot(dt: number): void {
+    const rate = fireRate(save.upgrades);
+    const dmg = shotDamage(save.upgrades);
+    const n = Math.min(shooters.length, Math.min(count, MAX_UNITS));
+    for (let i = 0; i < n; i++) {
+      shooters[i] -= dt;
+      if (shooters[i] > 0) continue;
+      // find best target: nearest alive obstacle ahead within range and roughly in our lane span
+      let best: Obstacle | null = null;
+      let bestDz = Infinity;
+      for (const ob of obstacles) {
+        if (ob.dead) continue;
+        const dz = centerZ - ob.def.z; // positive when ahead of us
+        if (dz <= 0.5 || dz > SHOOT_RANGE) continue;
+        if (Math.abs(ob.def.x - centerX) > 4.2) continue; // only engage obstacles in our lane span
+        if (dz < bestDz) { bestDz = dz; best = ob; }
+      }
+      if (!best) { shooters[i] = 0.08; continue; }
+      shooters[i] = 1 / rate;
+      const b = bullets.find((bb) => !bb.alive);
+      if (!b) continue;
+      b.alive = true;
+      b.x = unitX[i];
+      b.y = 0.9;
+      b.z = unitZ[i];
+      b.target = best;
+      b.tx = best.def.x;
+      b.ty = 1.0;
+      b.tz = best.def.z;
+      audio.sfx("shoot");
+      void dmg; // damage applied on bullet hit
+    }
+  }
+
+  function updateBullets(dt: number): void {
+    const dmg = shotDamage(save.upgrades);
+    const speed = 34;
+    for (const b of bullets) {
+      if (!b.alive) continue;
+      if (b.target && !b.target.dead) {
+        b.tx = b.target.def.x;
+        b.tz = b.target.def.z;
+      }
+      const dx = b.tx - b.x, dy = b.ty - b.y, dz = b.tz - b.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const step = speed * dt;
+      if (dist <= Math.max(0.4, step)) {
+        b.alive = false;
+        const ob = b.target;
+        if (ob && !ob.dead) {
+          ob.hp -= dmg;
+          ob.hitFlash = 1;
+          burst(b.tx, 1.1, b.tz, 4, 0xffe066, 1.6, 2.5);
+          if (ob.hp <= 0) {
+            destroyObstacle(ob, ob.def.kind === "boss" ? 30 : 3);
+          } else {
+            ob.label.set(String(ob.hp));
+            audio.sfx("hit");
+          }
+        }
+        continue;
+      }
+      b.x += (dx / dist) * step;
+      b.y += (dy / dist) * step;
+      b.z += (dz / dist) * step;
+    }
+  }
+
+  // ---------- fixed update ----------
+  const STEP = GameLoop.STEP;
+  let lastCount = count;
+
+  function update(dt: number): void {
+    elapsed += dt;
+    if (sm.state === "title") {
+      titleSpin += dt * 0.4;
+      return;
+    }
+    if (sm.state !== "playing") return;
+
+    // keyboard steering
+    centerX = clampF(centerX + input.moveX * 9 * dt, -TRACK_HALF, TRACK_HALF);
+    // auto-run forward (-Z)
+    centerZ -= def.speed * dt;
+
+    // crowd formation spring — dt-based so it is frame-rate independent
+    const k = 1 - Math.exp(-14 * dt);
+    const visN = Math.min(count, MAX_UNITS);
+    for (let i = 0; i < visN; i++) {
+      unitX[i] += (centerX + offsets[i].x - unitX[i]) * k;
+      unitZ[i] += (centerZ + offsets[i].z - unitZ[i]) * k;
+    }
+
+    // gates
+    for (const g of gateState) {
+      if (!g.applied && centerZ <= g.z + 0.4) {
+        applyGate(g);
+        if (sm.state !== "playing") return; // a bad gate can end the run
+      }
+      if (g.flash > 0) {
+        g.flash = Math.max(0, g.flash - dt * 2.2);
+        const s = 1 + g.flash * 0.15;
+        for (const p of g.panels) p.scale.set(s, s, 1);
+      }
+    }
+
+    // shooting + bullets
+    tryShoot(dt);
+    updateBullets(dt);
+
+    // obstacle contact (only those still standing)
+    const visibleN = Math.min(count, MAX_UNITS);
+    const frontOff = 0.7 + 0.27 * Math.sqrt(visibleN) * 0.5;
+    for (const ob of obstacles) {
+      if (ob.dead) continue;
+      const dz = centerZ - ob.def.z; // positive while the obstacle is still ahead
+      if (dz < -3) {
+        // passed it somehow — retire it so it never collides from behind
+        ob.dead = true;
+        ob.group.visible = false;
+      } else if (dz <= frontOff + 0.5) {
+        if (Math.abs(ob.def.x - centerX) > ob.def.width / 2 + 0.9) continue; // dodged: different lane
+        // reached the obstacle while it still has HP: each HP point kills one unit
+        const lost = Math.min(count, ob.hp);
+        count -= lost;
+        burst(ob.def.x, 0.9, ob.def.z, Math.min(30, 8 + lost), COLORS.crowd, 4, 5);
+        destroyObstacle(ob, 0);
+        countLabel.set(String(Math.max(0, count)));
+        audio.sfx("lose");
+        shake = Math.max(shake, 0.8);
+        if (count <= 0) {
+          gameOver();
+          return;
+        }
+      }
+      if (ob.hitFlash > 0) {
+        ob.hitFlash = Math.max(0, ob.hitFlash - dt * 5);
+        const s = 1 + ob.hitFlash * 0.12;
+        ob.group.scale.set(s, s, s);
+      }
+    }
+
+    // coins
+    if (coinMesh) {
+      const grabR = 1.5 + 0.27 * Math.sqrt(visibleN) * 0.4;
+      for (let i = 0; i < coinState.length; i++) {
+        const c = coinState[i];
+        if (c.taken) continue;
+        if (Math.abs(c.z - centerZ) < 1.6 && Math.abs(c.x - centerX) < grabR) {
+          c.taken = true;
+          runCoins += 1;
+          audio.sfx("pickup");
+          burst(c.x, 0.6, c.z, 5, COLORS.coin, 1.5, 3);
+        }
+      }
+    }
+
+    // finish line
+    if (centerZ <= finishZ + 2) {
+      completeLevel();
+      return;
+    }
+
+    if (count !== lastCount) {
+      lastCount = count;
+      visible = Math.min(count, MAX_UNITS);
+    }
+    shake = Math.max(0, shake - dt * 2.4);
+  }
