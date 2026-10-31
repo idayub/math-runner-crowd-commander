@@ -1,0 +1,243 @@
+  // ---------- render ----------
+  const m4 = new THREE.Matrix4();
+  const q0 = new THREE.Quaternion();
+  const qCoin = new THREE.Quaternion();
+  const UP = new THREE.Vector3(0, 1, 0);
+  const v3 = new THREE.Vector3();
+  const s3 = new THREE.Vector3();
+
+  function render(): void {
+    // crowd units
+    const vis = sm.state === "gameover" ? 0 : visible;
+    const t = elapsed;
+    for (let i = 0; i < MAX_UNITS; i++) {
+      if (i < vis) {
+        let scale = 1;
+        if (unitPop[i] > 0) {
+          unitPop[i] = Math.min(1, unitPop[i] + 0.05);
+          scale = unitPop[i];
+        }
+        const bob = Math.abs(Math.sin(t * 11 + i * 0.7)) * 0.09;
+        m4.compose(v3.set(unitX[i], 0.44 + bob, unitZ[i]), q0, s3.set(scale, scale, scale));
+        bodies.setMatrixAt(i, m4);
+        m4.compose(v3.set(unitX[i], 0.94 + bob, unitZ[i]), q0, s3.set(scale, scale, scale));
+        heads.setMatrixAt(i, m4);
+      } else {
+        m4.makeScale(0, 0, 0);
+        bodies.setMatrixAt(i, m4);
+        heads.setMatrixAt(i, m4);
+      }
+    }
+    bodies.instanceMatrix.needsUpdate = true;
+    heads.instanceMatrix.needsUpdate = true;
+    countLabel.sprite.position.set(centerX, 2.7 + Math.sin(t * 2) * 0.06, centerZ);
+
+    // bullets
+    for (let i = 0; i < BULLET_POOL; i++) {
+      const b = bullets[i];
+      if (b.alive) m4.compose(v3.set(b.x, b.y, b.z), q0, s3.set(1, 1, 1));
+      else m4.makeScale(0, 0, 0);
+      bulletMesh.setMatrixAt(i, m4);
+    }
+    bulletMesh.instanceMatrix.needsUpdate = true;
+
+    // particles
+    for (let i = 0; i < PARTICLE_POOL; i++) {
+      const p = parts[i];
+      if (p.alive) {
+        p.life -= STEP;
+        if (p.life <= 0) {
+          p.alive = false;
+          m4.makeScale(0, 0, 0);
+        } else {
+          p.vy -= 12 * STEP;
+          p.x += p.vx * STEP;
+          p.y = Math.max(0.05, p.y + p.vy * STEP);
+          p.z += p.vz * STEP;
+          const s = p.life / p.max;
+          m4.compose(v3.set(p.x, p.y, p.z), q0, s3.set(s, s, s));
+        }
+      } else {
+        m4.makeScale(0, 0, 0);
+      }
+      partMesh.setMatrixAt(i, m4);
+    }
+    partMesh.instanceMatrix.needsUpdate = true;
+
+    // coins spin + hide taken
+    if (coinMesh) {
+      const spin = t * 3.2;
+      for (let i = 0; i < coinState.length; i++) {
+        const c = coinState[i];
+        if (c.taken) {
+          m4.makeScale(0, 0, 0);
+        } else {
+          qCoin.setFromAxisAngle(UP, spin + i);
+          m4.compose(v3.set(c.x, 0.55, c.z), qCoin, s3.set(1, 1, 1));
+        }
+        coinMesh.setMatrixAt(i, m4);
+      }
+      coinMesh.instanceMatrix.needsUpdate = true;
+    }
+
+    // camera
+    if (sm.state === "title") {
+      const a = titleSpin;
+      camera.position.set(Math.sin(a) * 9, 6.5, 6 + Math.cos(a) * 9);
+      camera.lookAt(0, 1, 0);
+    } else {
+      const sx = (vrnd() - 0.5) * shake * 0.7;
+      const sy = (vrnd() - 0.5) * shake * 0.5;
+      camera.position.set(centerX * 0.55 + sx, 10.6 + sy, centerZ + 9.2);
+      camera.lookAt(centerX * 0.55, 0, centerZ - 9.5);
+    }
+    renderer.render(scene, camera);
+    window.__GAME_READY__ = true;
+  }
+
+  const loop = new GameLoop({
+    update: (dt) => {
+      update(dt);
+      pushUi();
+    },
+    render,
+  });
+
+  // ---------- keyboard actions ----------
+  const onKey = (e: KeyboardEvent) => {
+    if (e.code === "Space") {
+      if (sm.state === "title") api.start();
+      else if (sm.state === "levelup") api.nextLevel();
+      else if (sm.state === "gameover") api.restart();
+    } else if (e.code === "Escape" || e.code === "KeyP") {
+      if (sm.state === "playing" || sm.state === "paused") api.togglePause();
+    }
+  };
+  window.addEventListener("keydown", onKey);
+
+  const onResize = () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+  };
+  window.addEventListener("resize", onResize);
+
+  window.__gameProbe = () => ({ x: centerX, y: 0, z: centerZ });
+  // read-only debug snapshot for automated playtests (no gameplay effect)
+  window.__gameDebug = () => ({
+    phase: sm.state,
+    count,
+    centerX,
+    centerZ,
+    finishZ,
+    drawCalls: renderer.info.render.calls,
+    triangles: renderer.info.render.triangles,
+    gates: gateState.map((g) => ({ z: g.z, applied: g.applied, left: g.left, right: g.right })),
+    obstacles: obstacles.filter((o) => !o.dead).map((o) => ({ x: o.def.x, z: o.def.z, hp: o.hp, kind: o.def.kind })),
+  });
+
+  // ---------- public API ----------
+  const api: GameApi = {
+    start: () => {
+      if (sm.state !== "title") return;
+      audio.sfx("ui");
+      startRun();
+    },
+    togglePause: () => {
+      if (sm.state === "playing") {
+        sm.transition("paused");
+        audio.sfx("ui");
+        pushUi(true);
+      } else if (sm.state === "paused") {
+        sm.transition("playing");
+        audio.sfx("ui");
+        pushUi(true);
+      }
+    },
+    restart: () => {
+      if (sm.state !== "gameover" && sm.state !== "paused") return;
+      audio.sfx("ui");
+      startRun();
+    },
+    quitToTitle: () => {
+      if (sm.state === "title") return;
+      audio.sfx("ui");
+      audio.stopMusic();
+      // rebuild the current level behind the title screen
+      def = genLevel(save.level);
+      buildLevel(def);
+      resetRun();
+      sm.transition("title");
+      pushUi(true);
+    },
+    nextLevel: () => {
+      if (sm.state !== "levelup") return;
+      audio.sfx("ui");
+      startRun();
+    },
+    buyUpgrade: (k) => {
+      if (sm.state !== "levelup" && sm.state !== "title" && sm.state !== "gameover") return;
+      const lv = save.upgrades[k];
+      if (lv >= 10) return;
+      const cost = upgradeCost(k, lv);
+      if (save.coins < cost) return;
+      save.coins -= cost;
+      save.upgrades[k] = lv + 1;
+      storage.set(SAVE_KEY, save);
+      audio.sfx("pickup");
+      pushUi(true);
+    },
+    toggleMute: () => {
+      audio.toggleMute();
+      pushUi(true);
+    },
+  };
+
+  // boot into title with the level visible behind it
+  buildLevel(def);
+  resetRun();
+  loop.start();
+  pushUi(true);
+
+  session = {
+    dispose: () => {
+      loop.stop();
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("keydown", onKey);
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      input.dispose();
+      audio.dispose();
+      clearLevel();
+      disposeObject(envGroup);
+      scene.remove(envGroup);
+      countLabel.dispose();
+      bodyGeo.dispose();
+      headGeo.dispose();
+      crowdBodyMat.dispose();
+      crowdHeadMat.dispose();
+      bulletGeo.dispose();
+      bulletMat.dispose();
+      partGeo.dispose();
+      partMat.dispose();
+      unitBodyGeo.dispose();
+      unitHeadGeo.dispose();
+      enemyMat.dispose();
+      enemyDarkMat.dispose();
+      barrelMat.dispose();
+      bossMat.dispose();
+      renderer.dispose();
+      delete window.__gameProbe;
+      window.__GAME_READY__ = false;
+    },
+  };
+
+  return api;
+}
+
+export function stopGame(): void {
+  session?.dispose();
+  session = null;
+}
