@@ -1,0 +1,291 @@
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0b0e12;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+#game-root {
+  position: fixed;
+  inset: 0;
+}
+
+#game-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+#ui-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#ui-overlay > * {
+  pointer-events: auto;
+}
+
+.game-hint {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  margin: 0;
+  color: #cde;
+  font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ---------- Math Runner HUD ---------- */
+
+.hud-top {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: max(12px, env(safe-area-inset-top));
+}
+
+.hud-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(13, 38, 64, 0.78);
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+}
+
+.pill-count {
+  font-size: 22px;
+  padding: 10px 22px;
+  background: #2d9cdb;
+  box-shadow: 0 4px 14px rgba(45, 156, 219, 0.5);
+}
+
+.pill-coins { background: rgba(120, 84, 10, 0.85); color: #ffe9a8; }
+.pill-level { background: rgba(13, 38, 64, 0.78); }
+
+.progress-track {
+  width: min(60vw, 320px);
+  height: 6px;
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #f2c94c;
+  border-radius: 999px;
+  transition: width 0.2s linear;
+}
+
+.hud-buttons {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  border-radius: 14px;
+  background: rgba(13, 38, 64, 0.78);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+
+.icon-btn:active { transform: scale(0.92); }
+
+@media (max-width: 480px) {
+  .hud-buttons { top: calc(max(12px, env(safe-area-inset-top)) + 56px); }
+  .pill { font-size: 13px; padding: 7px 11px; }
+  .pill-count { font-size: 19px; padding: 8px 16px; }
+}
+
+.drag-hint {
+  position: absolute;
+  bottom: max(28px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  animation: hint-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes hint-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* ---------- overlay screens ---------- */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  pointer-events: auto;
+  overflow-y: auto;
+}
+
+.screen.dim { background: rgba(7, 18, 33, 0.55); backdrop-filter: blur(3px); }
+
+.card {
+  width: min(92vw, 400px);
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 24px;
+  padding: 26px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(7, 18, 33, 0.35);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+
+.game-logo {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #1f2937;
+}
+
+.game-logo span { color: #2d9cdb; }
+
+.game-sub {
+  margin: -8px 0 0;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #f2994a;
+}
+
+.game-desc { margin: 0; color: #4b5563; font-size: 14px; line-height: 1.4; }
+
+.card h2 { margin: 0; font-size: 26px; color: #1f2937; }
+.win-title { color: #15803d; }
+.lose-title { color: #b91c1c; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #1f2937;
+  background: #e5e7eb;
+  cursor: pointer;
+}
+
+.btn:active { transform: scale(0.97); }
+
+.btn-primary {
+  background: linear-gradient(135deg, #2d9cdb, #27ae60);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(45, 156, 219, 0.4);
+}
+
+.btn-ghost { background: transparent; color: #6b7280; }
+
+.title-stats {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.title-stats .pill { font-size: 13px; padding: 6px 12px; }
+
+.controls-hint { margin: 0; font-size: 12px; color: #9ca3af; }
+
+/* ---------- upgrade shop ---------- */
+
+.shop { display: flex; flex-direction: column; gap: 8px; }
+
+.shop-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #9ca3af;
+}
+
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.shop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-height: 44px;
+  padding: 10px 6px;
+  border: 2px solid #e5e7eb;
+  border-radius: 14px;
+  background: #f9fafb;
+  color: #374151;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.shop-card.afford { border-color: #2d9cdb; background: #eff8ff; }
+.shop-card:disabled { opacity: 0.55; cursor: not-allowed; }
+.shop-card:not(:disabled):active { transform: scale(0.95); }
+
+.shop-name { font-size: 11px; font-weight: 800; }
+.shop-lv { font-size: 10px; color: #6b7280; }
+.shop-desc { font-size: 9px; color: #9ca3af; line-height: 1.2; }
+
+.shop-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #b45309;
+}
